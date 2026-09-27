@@ -1,0 +1,122 @@
+extends: ../mirror-base.yml
+
+name: zot
+# Logical index package `project-zot/zot` lives at the physical path
+# `ghcr.io/ocx-contrib/project-zot/zot` — slash segments, never flattened.
+# Namespace is the org (`project-zot` is the project's own brand, and one
+# release ships four tools: zot, zli, zb, zxp). The bare `zot` GitHub handle
+# belongs to an unrelated user, so `zot/zot` is not available.
+target:
+  registry: ghcr.io
+  repository: ocx-contrib/project-zot/zot
+
+source:
+  type: github_release
+  owner: project-zot
+  repo: zot
+  tag_pattern: "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+
+annotations:
+  org.opencontainers.image.licenses: Apache-2.0
+
+# ─── libc gate (Phase 3.5) — the evidence, not the conclusion ───────────────
+#
+# zot is Go, but NOT a static binary: upstream links it PIE with a glibc
+# program interpreter and no DT_NEEDED entries. Measured on v2.1.21 and v2.0.0
+# (the floor), both arches:
+#
+#   $ file zot-linux-amd64
+#   ELF 64-bit LSB shared object, x86-64, dynamically linked,
+#   interpreter /lib64/ld-linux-x86-64.so.2
+#   $ file zot-linux-arm64
+#   ELF 64-bit LSB shared object, ARM aarch64, dynamically linked,
+#   interpreter /lib/ld-linux-aarch64.so.1
+#   $ readelf -d zot-linux-amd64 | grep NEEDED            → (none)
+#   $ strings zot-linux-* | grep -E '^GLIBC_[0-9.]+$'     → (none)
+#
+# The PT_INTERP names the glibc loader, which a stock musl userland does not
+# have — so both Linux keys are `+libc.glibc` and the legs are ubuntu + fedora,
+# no alpine. No versioned glibc symbols → no glibc floor beyond the loader.
+#
+# ─── Scope ──────────────────────────────────────────────────────────────────
+#
+# One release carries zot, zli, zb and zxp side by side; the anchored ^…$
+# patterns keep the other three (and zot's `-minimal` / `-debug` builds, the
+# checksums file and zot-schema.json) out of this spec. Not mirrored:
+#   zot-*-minimal / zot-*-debug — alternate build flavours (candidate variants)
+#   zot-freebsd-*               — no GitHub-hosted runner to test on
+# Windows assets first appear in v2.1.3 → per-platform min_version below.
+assets:
+  "linux/amd64+libc.glibc":
+    - "^zot-linux-amd64$"
+  "linux/arm64+libc.glibc":
+    - "^zot-linux-arm64$"
+  darwin/amd64:
+    - "^zot-darwin-amd64$"
+  darwin/arm64:
+    - "^zot-darwin-arm64$"
+  windows/amd64:
+    - "^zot-windows-amd64\\.exe$"
+  windows/arm64:
+    - "^zot-windows-arm64\\.exe$"
+
+asset_type:
+  # Raw binary on every platform, versionless names. Lands as `zot` (the
+  # Windows asset keeps its `.exe`), directly at the content root — the one
+  # layout where a bare ${installPath} PATH is correct.
+  type: binary
+  name: zot
+
+metadata:
+  default: metadata.json
+
+catalog:
+  # The logo is repo-root and shared; the default probe only looks in the
+  # spec's own directory, so it is named explicitly.
+  logo: ../logo.svg
+
+# `platforms:` is DUAL-PURPOSE: runner/container matrix AND per-platform
+# version window. Kept out of the base — see the note there.
+platforms:
+  "linux/amd64+libc.glibc":
+    runner: ubuntu-latest
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "fedora:40",    shell: bash }
+  "linux/arm64+libc.glibc":
+    # arm64 container legs run natively — no qemu — so the runner arch must
+    # match the platform or the renderer reds the leg up front.
+    runner: ubuntu-24.04-arm
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "fedora:40",    shell: bash }
+  darwin/amd64:
+    # Intel slice tested on the arm64 macos-14 runner via Rosetta 2 — GitHub's
+    # macos-13 Intel pool is exhausted and deadlocks the push job.
+    runner: macos-14
+  darwin/arm64:
+    runner: macos-14
+  windows/amd64:
+    runner: windows-latest
+    shell: pwsh
+    min_version: "2.1.3"
+  windows/arm64:
+    runner: windows-11-arm
+    shell: pwsh
+    min_version: "2.1.3"
+
+versions:
+  min: "2.0.0"
+  new_per_run: 5
+  # sha3-staggered slot: scripts/poll_stagger.py project-zot/zot
+  poll_interval: "49 0-23/6 * * *"
+
+tests:
+  # `script:` resolves from the repository root, unlike metadata/catalog.
+  - name: smoke
+    script: zot/tests/smoke.star
+
+# Logical name spelled out — not derived from target.repository.
+announce:
+  package: project-zot/zot
+  fork: ocx-contrib/index
