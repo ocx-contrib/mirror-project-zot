@@ -6,10 +6,16 @@ ZOT = "zot.exe" if ocx.target_platform.os == ocx.os.Windows else "zot"
 r = ocx.run(ZOT, "-v")
 expect.ok(r)
 out = r.stdout + r.stderr
-expect.matches(out, r'"commit":"v\d+\.\d+\.\d+')
-# Full build flavour: its binary-type lists the extensions compiled in. The
-# `-minimal` asset has none, so a flavour mix-up reds here.
-expect.matches(out, r'"binary-type":"[^"]*-search')
+expect.matches(out, r'"message":"version"')
+# v2.1.10 alone shipped without build ldflags (the module moved to /v2 and the
+# -X paths missed): commit, binary-type and go version are all empty, on every
+# asset flavour. Only a fully unstamped build skips the stamp checks — the
+# anchored asset patterns still keep `-minimal` out for that one release.
+if '"commit":"","binary-type":""' not in out:
+    expect.matches(out, r'"commit":"v\d+\.\d+\.\d+')
+    # Full build flavour: its binary-type lists the extensions compiled in. The
+    # `-minimal` asset has none, so a flavour mix-up reds here.
+    expect.matches(out, r'"binary-type":"[^"]*-search')
 
 # Tier 3 — `verify` parses and validates a config. Hermetic: config and
 # storage root both under scratch. Forward slashes keep the JSON valid on
